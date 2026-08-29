@@ -1,0 +1,18 @@
+body {
+  font-family: system-ui, sans-serif;
+  margin: 0;
+  color: #1a1a1a;
+}
+
+nav {
+  display: flex;
+  gap: 1rem;
+  padding: 1rem;
+  border-bottom: 1px solid #ddd;
+}
+
+main {
+  padding: 1.5rem;
+  max-width: 720px;
+  margin: 0 auto;
+}
