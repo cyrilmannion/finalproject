@@ -5,9 +5,9 @@ import type { BookingWithSlot } from "../../../shared/src/types";
 import { api } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 
-// Admin dashboard - every booking, from every visitor/member. Requires an Admin-role
-// JWT (see Login.tsx); anyone else sees a message pointing them at /login instead.
-export function Admin() {
+// Member's own bookings - only ones made while logged in (see optionalAuth on the
+// server's POST /api/bookings) show up here, via GET /api/bookings/mine.
+export function Account() {
   const { token, user } = useAuth();
   const [bookings, setBookings] = useState<BookingWithSlot[]>([]);
   const [loading, setLoading] = useState(false);
@@ -17,23 +17,23 @@ export function Admin() {
     setLoading(true);
     setError(null);
     api
-      .getBookings(currentToken)
+      .getMyBookings(currentToken)
       .then(setBookings)
       .catch((err) => setError(err instanceof Error ? err.message : "Failed to load bookings"))
       .finally(() => setLoading(false));
   }
 
   useEffect(() => {
-    if (token && user?.role === "Admin") {
+    if (token) {
       load(token);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token, user?.role]);
+  }, [token]);
 
-  if (!token || user?.role !== "Admin") {
+  if (!token) {
     return (
       <Alert variant="secondary">
-        Admin access only. <Link to="/login">Log in</Link> with an Admin account to view bookings.
+        <Link to="/login">Log in</Link> to see your bookings.
       </Alert>
     );
   }
@@ -41,18 +41,21 @@ export function Admin() {
   return (
     <section>
       <div className="d-flex justify-content-between align-items-center mb-4">
-        <h1 className="mb-0">All Bookings</h1>
+        <h1 className="mb-0">My Bookings</h1>
         <Button variant="outline-secondary" size="sm" onClick={() => load(token)}>
           Refresh
         </Button>
       </div>
+      <p className="text-muted">Logged in as {user?.email}</p>
 
       {error && <Alert variant="danger">{error}</Alert>}
 
       {loading ? (
         <Spinner animation="border" size="sm" role="status" />
       ) : bookings.length === 0 ? (
-        <Alert variant="secondary">No bookings yet.</Alert>
+        <Alert variant="secondary">
+          You have no bookings yet - <Link to="/booking">book a tee time</Link> to see it here.
+        </Alert>
       ) : (
         <Table striped bordered hover responsive size="sm">
           <thead>
@@ -60,9 +63,6 @@ export function Admin() {
               <th>Date</th>
               <th>Time</th>
               <th>Type</th>
-              <th>Name</th>
-              <th>Email</th>
-              <th>Phone</th>
               <th>Party</th>
             </tr>
           </thead>
@@ -72,17 +72,12 @@ export function Admin() {
                 <td>{booking.date}</td>
                 <td>{booking.time}</td>
                 <td>{booking.type}</td>
-                <td>{booking.name}</td>
-                <td>{booking.email}</td>
-                <td>{booking.phone || "-"}</td>
                 <td>{booking.partySize}</td>
               </tr>
             ))}
           </tbody>
         </Table>
       )}
-
-      {/* TODO: tee-time slot management (create/edit/delete) still to come. */}
     </section>
   );
 }

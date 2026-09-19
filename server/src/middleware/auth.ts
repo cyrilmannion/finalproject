@@ -31,3 +31,20 @@ export function requireRole(role: "Admin" | "Member") {
     next();
   };
 }
+
+// Like requireAuth, but never rejects the request - a missing or invalid token just means
+// req.user stays undefined (anonymous). Used on public routes that behave differently when
+// the caller happens to be logged in (e.g. linking a booking to the account that made it),
+// without forcing every visitor to have an account first.
+export function optionalAuth(req: AuthedRequest, _res: Response, next: NextFunction) {
+  const header = req.headers.authorization;
+  if (header?.startsWith("Bearer ")) {
+    try {
+      const token = header.slice("Bearer ".length);
+      req.user = jwt.verify(token, process.env.JWT_SECRET as string) as AuthedRequest["user"];
+    } catch {
+      // Invalid/expired token on an optional route - proceed as anonymous rather than failing.
+    }
+  }
+  next();
+}

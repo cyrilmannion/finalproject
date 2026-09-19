@@ -5,15 +5,34 @@ import { requireAuth, requireRole } from "../middleware/auth.js";
 
 export const teeTimesRouter = Router();
 
-// GET /api/tee-times - list upcoming slots (public: visitors need to see availability).
+interface SlotRow {
+  id: string;
+  date: string;
+  time: string;
+  capacity: number;
+  available: number;
+}
+
+// GET /api/tee-times - list bookable slots (public: visitors need to see availability).
+// A slot with available = 0 is fully booked and is excluded entirely, per the "once
+// reserved it should no longer display as available" requirement - not just disabled.
 teeTimesRouter.get("/", (_req, res, next) => {
   try {
     const rows = db
       .prepare(
-        "SELECT id, date, time, capacity, available FROM tee_time_slots WHERE date >= date('now') ORDER BY date, time"
+        `SELECT id, date, time, capacity, available FROM tee_time_slots
+         WHERE date >= date('now') AND available > 0
+         ORDER BY date, time`
       )
-      .all();
-    res.json(rows);
+      .all() as unknown as SlotRow[];
+
+    // Also hide today's slots whose time has already passed.
+    const now = new Date();
+    const todayStr = now.toISOString().slice(0, 10);
+    const nowTimeStr = now.toISOString().slice(11, 16);
+    const upcoming = rows.filter((slot) => slot.date !== todayStr || slot.time >= nowTimeStr);
+
+    res.json(upcoming);
   } catch (err) {
     next(err);
   }

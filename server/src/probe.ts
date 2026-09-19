@@ -1,0 +1,12 @@
+console.log("1: start");
+import "dotenv/config";
+console.log("2: dotenv loaded, PORT=", process.env.PORT, "DB=", process.env.SQLITE_DB_PATH);
+import cors from "cors";
+console.log("3: cors loaded");
+import express from "express";
+console.log("4: express loaded");
+import helmet from "helmet";
+console.log("5: helmet loaded");
+console.log("6: about to import seed.js");
+import "./db/seed.js";
+console.log("7: seed.js loaded OK");

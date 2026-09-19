@@ -6,6 +6,7 @@ export type UserRole = "Admin" | "Member";
 export interface AuthUser {
   id: string;
   email: string;
+  name: string;
   role: UserRole;
 }
 
@@ -50,7 +51,48 @@ export interface LoginRequest {
   password: string;
 }
 
+export interface RegisterRequest {
+  name: string;
+  email: string;
+  password: string;
+}
+
 export interface LoginResponse {
   token: string;
   user: AuthUser;
+}
+
+// A booking joined with its tee-time slot's date/time - what the Admin bookings view needs.
+export interface BookingWithSlot {
+  id: string;
+  type: BookingType;
+  name: string;
+  email: string;
+  phone: string | null;
+  partySize: number;
+  createdAt: string;
+  date: string;
+  time: string;
+}
+
+export interface DailyForecast {
+  date: string;         // ISO date, e.g. "2026-09-05"
+  code: number;          // WMO weather code
+  description: string;
+  maxC: number;
+  minC: number;
+}
+
+export interface WeatherResponse {
+  location: string;
+  updatedAt: string;     // ISO timestamp of when the server fetched this from Open-Meteo
+  current: {
+    temperatureC: number;
+    humidity: number;
+    windSpeedMph: number;
+    windDirection: string; // compass point, e.g. "WSW"
+    code: number;           // WMO weather code
+    description: string;
+  };
+  daily: DailyForecast[];
 }

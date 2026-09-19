@@ -24,8 +24,19 @@ For the eventual AWS deployment, `server/src/db/index.ts` and the `?`-placeholde
 kept dialect-neutral (IDs/timestamps generated in application code) to make that swap contained.
 
 **Test credentials (seeded automatically):** `admin@stepaside.local` / `Admin123!` - use this to log in
-via the Admin page and test the Admin-only tee-time creation endpoint. Change or remove this before any
-real deployment.
+as Admin and see every booking. Change or remove this before any real deployment.
+
+**Members** self-register via the Register page - this always creates a `Member` account (never `Admin`,
+which is only ever seeded, not self-assignable). A booking made while logged in as a Member links to
+that account and shows up under "My Bookings".
+
+Guest checkout (booking without an account) was the original design. That's been reversed at the UI
+level: the booking page now sits behind a login gate (`client/src/auth/RequireAuth.tsx`) and an
+anonymous visitor is redirected to `/login` with a message telling them why. Note this is currently a
+client-side gate only - `POST /api/bookings` still uses `optionalAuth`, not `requireAuth`, so a request
+made directly against the API (bypassing the UI) would still succeed unlinked. Tightening that
+(`requireAuth` instead of `optionalAuth` on the bookings route) is a five-minute follow-up if the guest
+checkout removal should also be enforced server-side.
 
 ## Getting started
 

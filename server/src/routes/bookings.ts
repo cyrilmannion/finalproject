@@ -1,11 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { Router } from "express";
 import { db } from "../db/index.js";
-import { requireAuth, requireRole } from "../middleware/auth.js";
+import { type AuthedRequest, optionalAuth, requireAuth, requireRole } from "../middleware/auth.js";
 
 export const bookingsRouter = Router();
 
-class NotEnoughAvailabilityError extends Error {}
+class SlotUnavailableError extends Error {}
+class PartySizeTooLargeError extends Error {}
 
 interface CreateBookingParams {
   id: string;
@@ -16,24 +17,29 @@ interface CreateBookingParams {
   phone?: string;
   partySize: number;
   createdAt: string;
+  userId: string | null;
 }
 
-// Manual transaction (node:sqlite has no built-in .transaction() helper like better-sqlite3) -
-// keeps the availability check and the decrement atomic so two bookings can't race each other.
+// A tee time is claimed entirely by one booking (one group per slot, matching how club
+// tee sheets actually work), rather than being partially filled by party size. Wrapped in
+// a manual transaction so two people can't both claim the same slot at once.
 function createBooking(params: CreateBookingParams) {
   db.exec("BEGIN");
   try {
     const slot = db
-      .prepare("SELECT available FROM tee_time_slots WHERE id = ?")
-      .get(params.teeTimeSlotId) as { available: number } | undefined;
+      .prepare("SELECT capacity, available FROM tee_time_slots WHERE id = ?")
+      .get(params.teeTimeSlotId) as { capacity: number; available: number } | undefined;
 
-    if (!slot || slot.available < params.partySize) {
-      throw new NotEnoughAvailabilityError("Not enough availability for this slot");
+    if (!slot || slot.available <= 0) {
+      throw new SlotUnavailableError("This tee time is no longer available");
+    }
+    if (params.partySize > slot.capacity) {
+      throw new PartySizeTooLargeError(`This tee time allows a maximum of ${slot.capacity} players`);
     }
 
     db.prepare(
-      `INSERT INTO bookings (id, tee_time_slot_id, type, name, email, phone, party_size, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO bookings (id, tee_time_slot_id, type, name, email, phone, party_size, created_at, user_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
       params.id,
       params.teeTimeSlotId,
@@ -42,13 +48,12 @@ function createBooking(params: CreateBookingParams) {
       params.email,
       params.phone ?? null,
       params.partySize,
-      params.createdAt
+      params.createdAt,
+      params.userId
     );
 
-    db.prepare("UPDATE tee_time_slots SET available = available - ? WHERE id = ?").run(
-      params.partySize,
-      params.teeTimeSlotId
-    );
+    // Whole slot consumed by this one booking, regardless of party size.
+    db.prepare("UPDATE tee_time_slots SET available = 0 WHERE id = ?").run(params.teeTimeSlotId);
 
     const booking = db.prepare("SELECT * FROM bookings WHERE id = ?").get(params.id);
     db.exec("COMMIT");
@@ -60,7 +65,9 @@ function createBooking(params: CreateBookingParams) {
 }
 
 // POST /api/bookings - public: create a visitor or society booking against a tee time slot.
-bookingsRouter.post("/", (req, res, next) => {
+// optionalAuth: if the caller happens to be logged in, the booking is linked to their
+// account (so it shows up under "My Bookings") - but an account is never required to book.
+bookingsRouter.post("/", optionalAuth, (req: AuthedRequest, res, next) => {
   try {
     const { teeTimeSlotId, type, name, email, phone, partySize } = req.body as {
       teeTimeSlotId?: string;
@@ -86,21 +93,56 @@ bookingsRouter.post("/", (req, res, next) => {
       phone,
       partySize,
       createdAt: new Date().toISOString(),
+      userId: req.user?.sub ?? null,
     });
 
     res.status(201).json(booking);
   } catch (err) {
-    if (err instanceof NotEnoughAvailabilityError) {
+    if (err instanceof SlotUnavailableError) {
       return res.status(409).json({ error: err.message });
+    }
+    if (err instanceof PartySizeTooLargeError) {
+      return res.status(400).json({ error: err.message });
     }
     next(err);
   }
 });
 
-// GET /api/bookings - Admin only: view all bookings.
+// GET /api/bookings - Admin only: view every booking, joined with its tee-time slot's
+// date/time so the admin view shows what the booking is actually for.
 bookingsRouter.get("/", requireAuth, requireRole("Admin"), (_req, res, next) => {
   try {
-    const rows = db.prepare("SELECT * FROM bookings ORDER BY created_at DESC").all();
+    const rows = db
+      .prepare(
+        `SELECT b.id, b.type, b.name, b.email, b.phone,
+                b.party_size AS partySize, b.created_at AS createdAt,
+                s.date, s.time
+         FROM bookings b
+         JOIN tee_time_slots s ON s.id = b.tee_time_slot_id
+         ORDER BY s.date, s.time`
+      )
+      .all();
+    res.json(rows);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// GET /api/bookings/mine - any authenticated user: view only their own bookings
+// (those made while logged in - see optionalAuth above).
+bookingsRouter.get("/mine", requireAuth, (req: AuthedRequest, res, next) => {
+  try {
+    const rows = db
+      .prepare(
+        `SELECT b.id, b.type, b.name, b.email, b.phone,
+                b.party_size AS partySize, b.created_at AS createdAt,
+                s.date, s.time
+         FROM bookings b
+         JOIN tee_time_slots s ON s.id = b.tee_time_slot_id
+         WHERE b.user_id = ?
+         ORDER BY s.date, s.time`
+      )
+      .all(req.user!.sub);
     res.json(rows);
   } catch (err) {
     next(err);

@@ -1,18 +1,269 @@
 body {
   font-family: system-ui, sans-serif;
-  margin: 0;
-  color: #1a1a1a;
+  /* The full-bleed map below breaks out to 100vw, which can introduce a few
+     px of horizontal scroll on some browsers (100vw includes the scrollbar
+     width) - clip it here rather than on the element itself. */
+  overflow-x: hidden;
 }
 
-nav {
+/* Breaks an element out of its centered Bootstrap Container to span the
+   full browser width, regardless of how deep it's nested. */
+.full-bleed {
+  width: 100vw;
+  position: relative;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.weather-widget {
+  background: linear-gradient(135deg, #2f5d50, #1c332e);
+}
+
+/* Rebrands Bootstrap's ".btn-primary" / ".btn-outline-primary" from the
+   default blue to the course's existing dark green (already used for the
+   banner CTA, the weather widget and the widget-dock icons) by overriding
+   Bootstrap 5.3's per-component CSS variables - the stylesheet is imported
+   precompiled (bootstrap.min.css), so retinting has to happen here rather
+   than via a Sass variable. Solid btn-primary is used for the main
+   call-to-action on a given page (Book Online, tee-time slot picker);
+   btn-outline-primary for secondary actions (View Larger Map, Google
+   reviews, society contact) that were previously btn-outline-secondary -
+   grey-on-white read as too low-contrast to notice at a glance. Both
+   directions of #2f5d50 on white measure 7.5:1 contrast, comfortably past
+   WCAG AA (4.5:1) and AAA (7:1) for normal text. */
+.btn-primary {
+  --bs-btn-bg: #2f5d50;
+  --bs-btn-border-color: #2f5d50;
+  --bs-btn-hover-bg: #1c332e;
+  --bs-btn-hover-border-color: #1c332e;
+  --bs-btn-active-bg: #1c332e;
+  --bs-btn-active-border-color: #1c332e;
+  --bs-btn-disabled-bg: #2f5d50;
+  --bs-btn-disabled-border-color: #2f5d50;
+  --bs-btn-focus-shadow-rgb: 47, 93, 80;
+}
+
+.btn-outline-primary {
+  --bs-btn-color: #2f5d50;
+  --bs-btn-border-color: #2f5d50;
+  --bs-btn-hover-bg: #2f5d50;
+  --bs-btn-hover-border-color: #2f5d50;
+  --bs-btn-active-bg: #2f5d50;
+  --bs-btn-active-border-color: #2f5d50;
+  --bs-btn-disabled-color: #2f5d50;
+  --bs-btn-disabled-border-color: #2f5d50;
+  --bs-btn-focus-shadow-rgb: 47, 93, 80;
+}
+
+/* Scorecard tee colours - matches the White/Yellow/Blue/Red tee-box shading in
+   the club's 18-hole scorecard image. */
+.scorecard-table .tee-white {
+  background-color: #ffffff;
+}
+
+.scorecard-table .tee-yellow {
+  background-color: #ffe14d;
+}
+
+.scorecard-table .tee-blue {
+  background-color: #4dc3ff;
+}
+
+.scorecard-table .tee-red {
+  background-color: #f26b6b;
+}
+
+.scorecard-table thead th {
+  vertical-align: middle;
+}
+
+/* Home page hero banner - white utility bar (logo mark + wordmark + CTA) over a
+   course photo. Sits inside the page's normal Container width rather than
+   full-bleed, so the low-resolution source photo isn't stretched further than
+   it needs to be. */
+.course-banner {
+  background: #ffffff;
+}
+
+.course-banner-logo {
+  font-family: Georgia, "Times New Roman", serif;
+  font-style: italic;
+  font-weight: 700;
+  font-size: 2.25rem;
+  line-height: 1;
+  color: #7a8b6f;
+}
+
+.course-banner-wordmark {
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: #6b6b6b;
+  line-height: 1.3;
+}
+
+.course-banner-cta {
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  color: #2f5d50;
+}
+
+.course-banner-cta:hover {
+  color: #1c332e;
+}
+
+.course-banner-photo {
+  display: block;
+  width: 100%;
+  height: 220px;
+  object-fit: cover;
+  border-radius: 4px;
+}
+
+/* Full-bleed video hero - see HeroVideo.tsx. Fixed height rather than vh-based
+   so the layout doesn't jump as the video loads in. object-fit: cover crops
+   the 16:9 source to fill whatever width the viewport gives it. */
+.hero-video-section {
+  position: relative;
+  height: 60vh;
+  min-height: 320px;
+  max-height: 560px;
+  overflow: hidden;
+  background: #1c332e; /* shows briefly if the poster itself is still loading */
+}
+
+.hero-video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* Darkens the footage so the white overlay text stays readable regardless of
+   how bright any given frame of the source clip is. */
+.hero-video-overlay {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to bottom, rgba(0, 0, 0, 0.35), rgba(0, 0, 0, 0.55));
+}
+
+.hero-video-content {
+  position: relative;
+  z-index: 1;
+  height: 100%;
   display: flex;
-  gap: 1rem;
-  padding: 1rem;
-  border-bottom: 1px solid #ddd;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  color: #ffffff;
+  padding: 1.5rem;
 }
 
-main {
-  padding: 1.5rem;
-  max-width: 720px;
-  margin: 0 auto;
+.hero-video-logo {
+  font-family: Georgia, "Times New Roman", serif;
+  font-style: italic;
+  font-weight: 700;
+  font-size: 3rem;
+  line-height: 1;
+  margin-bottom: 0.5rem;
+}
+
+.hero-video-title {
+  font-weight: 700;
+  font-size: 2.25rem;
+  margin-bottom: 0.75rem;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+}
+
+.hero-video-tagline {
+  max-width: 40rem;
+  font-size: 1.1rem;
+  margin-bottom: 1.5rem;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+}
+
+.hero-video-cta {
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  color: #1c332e;
+}
+
+/* Anyone with reduced-motion set shouldn't have autoplaying video forced on
+   them - hide the <video> element entirely and let the poster image (set as
+   a background on the section itself) stand in as a plain static hero. */
+@media (prefers-reduced-motion: reduce) {
+  .hero-video {
+    display: none;
+  }
+
+  .hero-video-section {
+    background-image: url("/videos/hero-poster.jpg");
+    background-size: cover;
+    background-position: center;
+  }
+}
+
+/* Floating weather/reviews icon dock - see WidgetDock.tsx. */
+.widget-dock {
+  position: fixed;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 1040;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.widget-dock-item {
+  position: relative;
+}
+
+.widget-dock-icon {
+  width: 48px;
+  height: 48px;
+  border: none;
+  border-radius: 0 50% 50% 0;
+  background: #2f5d50;
+  color: #ffffff;
+  font-size: 1.15rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
+  cursor: pointer;
+}
+
+.widget-dock-icon:hover {
+  background: #1c332e;
+}
+
+.widget-dock-popout {
+  position: absolute;
+  left: calc(100% + 10px);
+  top: 50%;
+  transform: translateY(-50%);
+  width: 320px;
+  max-width: calc(100vw - 90px);
+}
+
+.widget-dock-close {
+  position: absolute;
+  top: -10px;
+  right: -10px;
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-radius: 50%;
+  background: #ffffff;
+  color: #333333;
+  font-size: 1.1rem;
+  line-height: 1;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+  cursor: pointer;
+  z-index: 1;
 }

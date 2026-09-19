@@ -24,3 +24,15 @@ db.exec("PRAGMA foreign_keys = ON;");
 // this file (and the pg-vs-sqlite query calls in the routes) is what changes.
 const schemaPath = path.resolve(__dirname, "schema.sql");
 db.exec(fs.readFileSync(schemaPath, "utf8"));
+
+// Migration guards: a database created before these columns existed won't have them
+// (CREATE TABLE IF NOT EXISTS doesn't retrofit existing tables) - add them if missing.
+const bookingColumns = db.prepare("PRAGMA table_info(bookings)").all() as { name: string }[];
+if (!bookingColumns.some((col) => col.name === "user_id")) {
+  db.exec("ALTER TABLE bookings ADD COLUMN user_id TEXT REFERENCES users(id)");
+}
+
+const userColumns = db.prepare("PRAGMA table_info(users)").all() as { name: string }[];
+if (!userColumns.some((col) => col.name === "name")) {
+  db.exec("ALTER TABLE users ADD COLUMN name TEXT NOT NULL DEFAULT ''");
+}

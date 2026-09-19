@@ -7,7 +7,8 @@ CREATE TABLE IF NOT EXISTS users (
     email TEXT UNIQUE NOT NULL,
     password_hash TEXT NOT NULL,
     role TEXT NOT NULL DEFAULT 'Member' CHECK (role IN ('Admin', 'Member')),
-    created_at TEXT NOT NULL
+    created_at TEXT NOT NULL,
+    name TEXT NOT NULL DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS tee_time_slots (
@@ -28,5 +29,6 @@ CREATE TABLE IF NOT EXISTS bookings (
     email TEXT NOT NULL,
     phone TEXT,
     party_size INTEGER NOT NULL DEFAULT 1,
-    created_at TEXT NOT NULL
+    created_at TEXT NOT NULL,
+    user_id TEXT REFERENCES users(id)
 );
