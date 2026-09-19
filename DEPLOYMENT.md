@@ -12,18 +12,43 @@ demo, but call it out explicitly as a known limitation in Chapter 5 (Testing/Eva
 alongside the security-header discussion already in the interim report. Adding a domain
 + HTTPS later is a small follow-up (see bottom).
 
+## Step 0 - Launch a dedicated EC2 instance for Stepaside
+
+Stepaside gets its own instance rather than sharing the box already running Moolah -
+keeps the two projects isolated (no shared Nginx config, no port collisions, no risk of
+one project's traffic or a misconfiguration affecting the other). From the EC2 console:
+
+1. **Launch Instance** → name it something like `stepaside-web`.
+2. **AMI**: Ubuntu Server 24.04 LTS.
+3. **Instance type**: `t3.micro` (free-tier eligible - plenty for a low-traffic
+   Node/Express + static React site with SQLite). Note: AWS's free tier is a *pooled*
+   750 hours/month of t2/t3.micro across your whole account, not per instance - if
+   Moolah's instance already runs 24/7, this one running 24/7 too will push you past
+   that pool and incur small charges (roughly $0.01/hour for a t3.micro). Not a reason
+   to avoid it, just don't be surprised by a small bill.
+4. **Key pair**: create a new one (e.g. `stepaside-key`) or reuse an existing one you
+   already hold the `.pem` for - your choice, they're independent of the instance.
+5. **Network settings**: use your existing VPC. Pick a **public subnet** (one with a
+   route to an Internet Gateway) and make sure **Auto-assign public IP** is enabled -
+   otherwise you won't be able to reach it from outside the VPC.
+6. **Security group**: create a **new** one scoped to this instance (don't reuse
+   Moolah's) allowing inbound:
+   - Port 22 (SSH) - restrict to your own IP if possible, not `0.0.0.0/0`.
+   - Port 80 (HTTP) - open to `0.0.0.0/0` so the site is publicly reachable.
+   - Nothing else. Port 4000 (the Node server) never needs to be open publicly -
+     Nginx will talk to it over `localhost` only, once we get to Step 9.
+7. **Storage**: default 8 GiB gp3 is fine for this app.
+8. **Launch**. Once it's running, grab its **public IPv4 address** from the instance
+   details page - that's `<EC2_PUBLIC_IP>` for every command below. Consider allocating
+   an **Elastic IP** and associating it with this instance so the address doesn't
+   change if you ever stop/start it (a plain reboot keeps the same IP; a stop/start
+   cycle doesn't).
+
 ## Before you start
 
-- Your EC2 instance's **public IP address** (or Elastic IP, if you've allocated one -
-  recommended so the address doesn't change on reboot).
-- Your **SSH key pair** (`.pem` file) for that instance.
-- Your EC2's **security group** allows inbound:
-  - Port 22 (SSH) - ideally restricted to your own IP, not `0.0.0.0/0`.
-  - Port 80 (HTTP) - open to `0.0.0.0/0` so the site is publicly reachable.
-  - Port 4000 does **not** need to be open publicly - Nginx will talk to it over
-    `localhost` only. Leave it closed/unlisted in the security group.
-- Your VPC's subnet for this instance needs a route to an Internet Gateway (it must,
-  since you can already SSH into it from outside).
+- The new instance's **public IP address** (or Elastic IP) from Step 0.
+- The **SSH key pair** (`.pem` file) you chose in Step 0.
+- Confirm you can SSH in before moving on (see Step 1).
 
 ## Step 1 - Connect and identify the OS
 
@@ -168,15 +193,33 @@ Useful commands: `pm2 status`, `pm2 logs stepaside-api`, `pm2 restart stepaside-
 
 ## Step 9 - Configure Nginx
 
-Create `/etc/nginx/conf.d/stepaside.conf` (Amazon Linux) or
-`/etc/nginx/sites-available/stepaside` + symlink into `sites-enabled` (Ubuntu):
+Nginx's worker process runs as `www-data`, which cannot traverse into another user's
+home directory on Ubuntu by default (home dirs are `750`) - pointing Nginx's `root`
+straight at `/home/ubuntu/stepaside/client/dist` fails with a `13: Permission denied`
+(you'd see a bare "500 Internal Server Error" nginx page, and
+`sudo tail /var/log/nginx/error.log` would show the `stat() ... failed (13: Permission
+denied)` line). Rather than opening up the home directory's permissions - which sits
+right next to `server/.env` and its `JWT_SECRET` - copy the built client into the
+standard `/var/www/` location instead (same convention Moolah already uses on this
+account), fully separate from your app code and secrets:
+
+```
+sudo mkdir -p /var/www/stepaside
+sudo cp -r ~/stepaside/client/dist/* /var/www/stepaside/
+sudo chown -R www-data:www-data /var/www/stepaside
+```
+
+Create `/etc/nginx/sites-available/stepaside`:
+```
+sudo nano /etc/nginx/sites-available/stepaside
+```
 
 ```nginx
 server {
     listen 80;
     server_name _;
 
-    root /home/ec2-user/stepaside/client/dist;
+    root /var/www/stepaside;
     index index.html;
 
     # API calls go to the Node process - same path prefix the Vite dev proxy used,
@@ -199,10 +242,11 @@ server {
 }
 ```
 
-Adjust the `root` path if you used a different clone directory or a non-`ec2-user`
-username (`whoami` to check). Then reload Nginx:
-
+Enable it and remove Ubuntu's default site (it also listens on port 80 with
+`server_name _` and will otherwise conflict):
 ```
+sudo ln -s /etc/nginx/sites-available/stepaside /etc/nginx/sites-enabled/
+sudo rm -f /etc/nginx/sites-enabled/default
 sudo nginx -t   # validates the config
 sudo systemctl reload nginx
 ```
@@ -223,9 +267,10 @@ git pull                 # or re-upload via scp
 npm install               # only needed if package.json changed
 npm run build:client
 npm run build:server
+sudo cp -r client/dist/* /var/www/stepaside/    # Nginx serves from here, not client/dist directly
 pm2 restart stepaside-api
 ```
-No Nginx change needed unless you edited the Nginx config itself.
+No Nginx config change needed unless you edited the Nginx config itself.
 
 ## Future work (worth a line in Chapter 6 - Future Work)
 
