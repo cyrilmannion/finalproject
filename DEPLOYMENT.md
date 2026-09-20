@@ -1,207 +1,116 @@
 # Deploying to AWS EC2
 
-Single-instance deployment: one EC2 box runs Nginx (port 80, public) which serves the
-built React app as static files and reverse-proxies `/api` to the Node/Express server
-(running on `localhost:4000`, not exposed publicly). SQLite stays as the database for
-now - see "Future work" at the bottom for the Postgres/RDS swap the README originally
-planned.
+Single-instance deployment. One Ubuntu EC2 instance runs Nginx, which terminates HTTPS, serves the built
+React app as static files and reverse-proxies `/api` to the Node/Express server on `localhost:4000` (not
+exposed publicly). SQLite is the database. The site is served over HTTPS at a free DuckDNS subdomain with
+a Let's Encrypt certificate and a set of security headers.
 
-No domain yet, so this deploys over plain HTTP to the EC2's public IP. That means
-traffic (including login passwords and JWTs) is unencrypted - fine for a coursework
-demo, but call it out explicitly as a known limitation in Chapter 5 (Testing/Evaluation)
-alongside the security-header discussion already in the interim report. Adding a domain
-+ HTTPS later is a small follow-up (see bottom).
+Placeholders used below: `<ELASTIC_IP>` (the instance's Elastic IP), `<HOSTNAME>` (your DuckDNS
+subdomain, e.g. `example.duckdns.org`), `<KEY_FILE>` (your EC2 key pair `.pem`, kept outside the repo).
 
-## Step 0 - Launch a dedicated EC2 instance for Stepaside
+## 1. Launch the instance
 
-Stepaside gets its own instance rather than sharing the box already running Moolah -
-keeps the two projects isolated (no shared Nginx config, no port collisions, no risk of
-one project's traffic or a misconfiguration affecting the other). From the EC2 console:
+In the EC2 console:
 
-1. **Launch Instance** → name it something like `stepaside-web`.
-2. **AMI**: Ubuntu Server 24.04 LTS.
-3. **Instance type**: `t3.micro` (free-tier eligible - plenty for a low-traffic
-   Node/Express + static React site with SQLite). Note: AWS's free tier is a *pooled*
-   750 hours/month of t2/t3.micro across your whole account, not per instance - if
-   Moolah's instance already runs 24/7, this one running 24/7 too will push you past
-   that pool and incur small charges (roughly $0.01/hour for a t3.micro). Not a reason
-   to avoid it, just don't be surprised by a small bill.
-4. **Key pair**: create a new one (e.g. `stepaside-key`) or reuse an existing one you
-   already hold the `.pem` for - your choice, they're independent of the instance.
-5. **Network settings**: use your existing VPC. Pick a **public subnet** (one with a
-   route to an Internet Gateway) and make sure **Auto-assign public IP** is enabled -
-   otherwise you won't be able to reach it from outside the VPC.
-6. **Security group**: create a **new** one scoped to this instance (don't reuse
-   Moolah's) allowing inbound:
-   - Port 22 (SSH) - restrict to your own IP if possible, not `0.0.0.0/0`.
-   - Port 80 (HTTP) - open to `0.0.0.0/0` so the site is publicly reachable.
-   - Nothing else. Port 4000 (the Node server) never needs to be open publicly -
-     Nginx will talk to it over `localhost` only, once we get to Step 9.
-7. **Storage**: default 8 GiB gp3 is fine for this app.
-8. **Launch**. Once it's running, grab its **public IPv4 address** from the instance
-   details page - that's `<EC2_PUBLIC_IP>` for every command below. Consider allocating
-   an **Elastic IP** and associating it with this instance so the address doesn't
-   change if you ever stop/start it (a plain reboot keeps the same IP; a stop/start
-   cycle doesn't).
+1. **AMI:** Ubuntu Server 24.04 LTS. **Type:** `t3.micro`. **Storage:** default 8 GiB gp3.
+2. **Key pair:** create one and store the `.pem` **outside this repository**. It is a private key and must
+   never be committed.
+3. **Network:** a public subnet with auto-assign public IP enabled.
+4. **Security group** (new, dedicated to this instance), inbound:
+   - 22 (SSH) - your own IP only, not `0.0.0.0/0`
+   - 80 (HTTP) - `0.0.0.0/0` (needed for the HTTPS redirect and certificate issue/renewal)
+   - 443 (HTTPS) - `0.0.0.0/0`
+   - Nothing else. Port 4000 is only reached by Nginx over localhost.
+5. **Elastic IP:** allocate one and associate it with the instance, so the address survives a stop/start.
+   Note that associating it releases the old auto-assigned public IP.
 
-## Before you start
+Connect with `ssh -i <KEY_FILE> ubuntu@<ELASTIC_IP>`.
 
-- The new instance's **public IP address** (or Elastic IP) from Step 0.
-- The **SSH key pair** (`.pem` file) you chose in Step 0.
-- Confirm you can SSH in before moving on (see Step 1).
+## 2. Hostname
 
-## Step 1 - Connect and identify the OS
+Create a free subdomain at duckdns.org and set its IP to `<ELASTIC_IP>`. Confirm with
+`nslookup <HOSTNAME>`. Let's Encrypt cannot issue certificates for a bare IP, so a hostname is required.
 
-```
-ssh -i /path/to/your-key.pem ec2-user@<EC2_PUBLIC_IP>
-```
+## 3. Install Node.js 22, Nginx and git
 
-If `ec2-user` doesn't work, try `ubuntu` (Ubuntu AMIs use that username instead). Once
-connected, check which OS you're on:
+The server uses `node:sqlite`, which needs Node 22 or newer, so install it from NodeSource:
 
-```
-cat /etc/os-release
-```
-
-- If it says `Amazon Linux` → use the **`dnf`** commands below.
-- If it says `Ubuntu` → use the **`apt`** commands below.
-
-## Step 2 - Install Node.js 22
-
-The server uses `node:sqlite` (Node's built-in SQLite module), which needs **Node 22
-or newer** - the default package-manager version is usually too old, so install it via
-NodeSource explicitly.
-
-**Ubuntu:**
 ```
 curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
-sudo apt-get install -y nodejs
-```
-
-**Amazon Linux:**
-```
-curl -fsSL https://rpm.nodesource.com/setup_22.x | sudo bash -
-sudo dnf install -y nodejs
-```
-
-Verify:
-```
-node --version    # should print v22.x
-```
-
-## Step 3 - Install Nginx and git
-
-**Ubuntu:**
-```
-sudo apt-get install -y nginx git
-```
-
-**Amazon Linux:**
-```
-sudo dnf install -y nginx git
-```
-
-Start Nginx now and make sure it survives a reboot:
-```
+sudo apt-get install -y nodejs nginx git
 sudo systemctl enable --now nginx
+node --version    # v22.x
 ```
 
-## Step 4 - Get the code onto the server
+## 4. Get the code, install and build
 
-**If your code is pushed to GitHub (recommended):**
 ```
 git clone <your-repo-url> stepaside
 cd stepaside
-```
-
-**If it isn't in a remote repo**, upload it from your own machine instead (run this on
-your Windows machine, not the EC2 box - PowerShell with OpenSSH works fine):
-```
-scp -i C:\path\to\your-key.pem -r "C:\Users\mypc\Desktop\Cyril Lecture Notes\Project\StepasideWebApp" ec2-user@<EC2_PUBLIC_IP>:~/stepaside
-```
-Exclude `node_modules` first (it's large and will be rebuilt on the server anyway) -
-either add a `.gitignore`-respecting sync tool or just delete local `node_modules`
-folders in a copy before `scp`.
-
-## Step 5 - Install dependencies and build
-
-From the project root on the EC2 instance:
-```
-cd ~/stepaside
 npm install
 npm run build:client
 npm run build:server
 ```
-This produces `client/dist/` (static site) and `server/dist/` (compiled JS).
 
-## Step 6 - Production `.env`
+## 5. Production configuration
 
 ```
 cp server/.env.example server/.env
 nano server/.env
 ```
 
-Set:
 ```
 PORT=4000
 SQLITE_DB_PATH=./data/stepaside.db
-JWT_SECRET=<generate a new one - see below>
+JWT_SECRET=<generated - see below>
 JWT_EXPIRES_IN=8h
-CLIENT_ORIGIN=http://<EC2_PUBLIC_IP>
+CLIENT_ORIGIN=https://<HOSTNAME>
 ```
 
-Generate a fresh `JWT_SECRET` for production rather than reusing your local dev one:
+Generate a fresh production secret rather than reusing the development one:
+
 ```
 node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 ```
 
-## Step 7 - Change the seeded admin password
-
-`server/src/db/seed.ts` seeds `admin@stepaside.local` / `Admin123!` automatically on
-first run if the database is empty. That credential is written in your README and is
-now effectively public (it'll be in your final report's appendix too) - **do not leave
-it active on a publicly reachable server.** After the first boot seeds the database,
-log in as that admin and either change the password (if the app has that flow yet) or
-update the row directly:
-
-```
-cd ~/stepaside/server
-node -e "
-const { DatabaseSync } = require('node:sqlite');
-const bcrypt = require('bcryptjs');
-const db = new DatabaseSync('./data/stepaside.db');
-const newHash = bcrypt.hashSync('<pick-a-real-password>', 10);
-db.prepare('UPDATE users SET password_hash = ? WHERE email = ?').run(newHash, 'admin@stepaside.local');
-console.log('Admin password updated.');
-"
-```
-
-## Step 8 - Run the server with pm2
-
-A plain `node dist/index.js` dies when your SSH session ends. Use `pm2` to keep it
-running and restart it on crash/reboot:
+## 6. Run the API with pm2
 
 ```
 sudo npm install -g pm2
 cd ~/stepaside/server
 pm2 start dist/index.js --name stepaside-api
 pm2 save
-pm2 startup    # run the command it prints, to survive an instance reboot
+pm2 startup    # run the command it prints so the API restarts after a reboot
 ```
 
-Useful commands: `pm2 status`, `pm2 logs stepaside-api`, `pm2 restart stepaside-api`.
+## 7. Replace the seeded Admin password
 
-## Step 9 - Configure Nginx
+On first start the server seeds a default Admin account (see `server/src/db/seed.ts`) whose credentials
+are known. **Replace its password before exposing the site.** The password is read from a prompt so it is
+not stored in shell history:
 
-Nginx's worker process runs as `www-data`, which cannot traverse into another user's
-home directory on Ubuntu by default (home dirs are `750`) - pointing Nginx's `root`
-straight at `/home/ubuntu/stepaside/client/dist` fails with a `13: Permission denied`
-(you'd see a bare "500 Internal Server Error" nginx page, and
-`sudo tail /var/log/nginx/error.log` would show the `stat() ... failed (13: Permission
-denied)` line). Rather than opening up the home directory's permissions - which sits
-right next to `server/.env` and its `JWT_SECRET` - copy the built client into the
-standard `/var/www/` location instead (same convention Moolah already uses on this
-account), fully separate from your app code and secrets:
+```
+cd ~/stepaside/server
+read -s -p "New admin password: " NEWPW; echo
+NEWPW="$NEWPW" node -e "
+const { DatabaseSync } = require('node:sqlite');
+const bcrypt = require('bcryptjs');
+const db = new DatabaseSync('./data/stepaside.db');
+const hash = bcrypt.hashSync(process.env.NEWPW, 10);
+const r = db.prepare('UPDATE users SET password_hash = ? WHERE email = ?').run(hash, '<admin-email>');
+console.log('Rows updated:', r.changes);
+"
+unset NEWPW
+```
+
+`<admin-email>` is the seeded Admin email. Use a long unique password and keep it in a password manager.
+The app has no change-password screen yet, so this manual reset is a known limitation.
+
+## 8. Nginx
+
+Nginx's worker runs as `www-data` and cannot read another user's home directory, so the built client is
+copied to `/var/www/` instead of being served from `~/stepaside/client/dist`. This also keeps the web root
+separate from `server/.env` and its `JWT_SECRET`.
 
 ```
 sudo mkdir -p /var/www/stepaside
@@ -209,21 +118,17 @@ sudo cp -r ~/stepaside/client/dist/* /var/www/stepaside/
 sudo chown -R www-data:www-data /var/www/stepaside
 ```
 
-Create `/etc/nginx/sites-available/stepaside`:
-```
-sudo nano /etc/nginx/sites-available/stepaside
-```
+Create `/etc/nginx/sites-available/stepaside` (start with the port 80 block only; certbot adds the
+HTTPS parts in step 9):
 
 ```nginx
 server {
     listen 80;
-    server_name _;
+    server_name <HOSTNAME>;
 
     root /var/www/stepaside;
     index index.html;
 
-    # API calls go to the Node process - same path prefix the Vite dev proxy used,
-    # so no client code changes are needed between dev and prod.
     location /api/ {
         proxy_pass http://127.0.0.1:4000;
         proxy_http_version 1.1;
@@ -233,53 +138,94 @@ server {
         proxy_set_header X-Forwarded-Proto $scheme;
     }
 
-    # SPA fallback: any non-file, non-/api route (e.g. /booking, /about-us on a
-    # hard refresh) should still serve index.html so react-router can handle it
-    # client-side, instead of Nginx 404ing.
+    # SPA fallback so react-router routes survive a hard refresh.
     location / {
         try_files $uri $uri/ /index.html;
     }
 }
 ```
 
-Enable it and remove Ubuntu's default site (it also listens on port 80 with
-`server_name _` and will otherwise conflict):
+Enable it and remove Ubuntu's default site:
+
 ```
 sudo ln -s /etc/nginx/sites-available/stepaside /etc/nginx/sites-enabled/
 sudo rm -f /etc/nginx/sites-enabled/default
-sudo nginx -t   # validates the config
-sudo systemctl reload nginx
+sudo nginx -t && sudo systemctl reload nginx
 ```
 
-## Step 10 - Test
+Check `http://<HOSTNAME>` loads before continuing.
 
-From your own machine's browser: `http://<EC2_PUBLIC_IP>/` - the homepage, hero video,
-weather widget, tee-time booking (once logged in), and admin login should all work
-exactly as they do locally. Check `pm2 logs stepaside-api` if `/api/*` calls fail, and
-`sudo journalctl -u nginx` / `sudo tail -f /var/log/nginx/error.log` if the static site
-itself doesn't load.
+## 9. HTTPS with certbot
+
+```
+sudo apt-get install -y certbot python3-certbot-nginx
+sudo certbot --nginx -d <HOSTNAME>
+sudo certbot renew --dry-run    # confirms automatic renewal works
+```
+
+Choose the redirect option when prompted. Certbot adds the `listen 443 ssl` configuration and certificate
+paths to the site file.
+
+## 10. Security headers and compression
+
+In the HTTPS (`listen 443 ssl`) server block, add:
+
+```nginx
+add_header X-Frame-Options "DENY" always;
+add_header X-Content-Type-Options "nosniff" always;
+add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+add_header Content-Security-Policy-Report-Only "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; media-src 'self'; connect-src 'self'; frame-ancestors 'none'" always;
+add_header Strict-Transport-Security "max-age=31536000" always;
+
+gzip on;
+gzip_types text/css application/javascript application/json image/svg+xml;
+```
+
+Notes:
+
+- `always` sends the headers on error responses too. Nginx does not inherit `add_header` into a `location`
+  that defines its own, so keep them at server level.
+- The CSP starts in report-only mode. Load the site with the browser console open, add any legitimate
+  origins it reports (for example a weather API in `connect-src`), then rename the header to
+  `Content-Security-Policy` to enforce it.
+- HSTS omits `includeSubDomains` and `preload` because the parent domain is not owned by this project.
+- Keep each `add_header` on a single line. A line break inside the quoted CSP value breaks the config.
+
+```
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+## 11. Verify
+
+```
+curl -I http://<HOSTNAME>     # expect 301 to https
+curl -I https://<HOSTNAME>    # expect 200 and the five security headers
+```
+
+Then use the site in a browser: homepage, weather widget, login, booking. If `/api/*` calls fail, check
+`pm2 logs stepaside-api` and that `CLIENT_ORIGIN` matches the HTTPS hostname. For static-file problems,
+check `sudo tail -f /var/log/nginx/error.log`.
 
 ## Redeploying after a code change
 
 ```
 cd ~/stepaside
-git pull                 # or re-upload via scp
-npm install               # only needed if package.json changed
+git pull
+npm install                  # only if package.json changed
 npm run build:client
 npm run build:server
-sudo cp -r client/dist/* /var/www/stepaside/    # Nginx serves from here, not client/dist directly
+sudo cp -r client/dist/* /var/www/stepaside/
 pm2 restart stepaside-api
 ```
-No Nginx config change needed unless you edited the Nginx config itself.
 
-## Future work (worth a line in Chapter 6 - Future Work)
+## Known limitations and future work
 
-- **HTTPS + a real domain**: point a domain's A record at the EC2's (Elastic) IP, then
-  `sudo apt/dnf install certbot python3-certbot-nginx` and
-  `sudo certbot --nginx -d yourdomain.com` for a free, auto-renewing certificate.
-- **Postgres via RDS**: the README already documents which two files
-  (`server/src/db/index.ts` and the `?`-placeholder queries in `server/src/routes/*.ts`)
-  would need to change - schema was kept dialect-neutral specifically to make this a
-  contained swap later.
-- **Elastic IP**: if you haven't already, allocate one and associate it with the
-  instance so the public IP doesn't change if the instance restarts.
+- **Database:** SQLite on the instance disk is a single point of failure with no automated backups.
+  Moving to Postgres on RDS is contained to `server/src/db/index.ts` and the `?`-placeholder queries in
+  `server/src/routes/*.ts`.
+- **Security headers:** the CSP is report-only until the console is clean.
+- **Hostname:** a free DuckDNS subdomain rules out HSTS preload; a registered domain would allow it.
+- **Admin password:** reset by hand (step 7); a change-password flow would remove that step.
+- **Server-side enforcement:** `POST /api/bookings` should require authentication on the API, not only in
+  the UI.
+- **Operations:** deployment is manual; there is no monitoring or automated backup.

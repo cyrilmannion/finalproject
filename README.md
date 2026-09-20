@@ -13,41 +13,47 @@ per the project proposal.
 
 ## Database
 
-Local development uses SQLite via Node's built-in `node:sqlite` module - no separate database server,
-and no native npm package to install/compile (deliberately avoided after `better-sqlite3` hit a native
-binding issue on Windows). The schema is applied automatically on server startup
-(`server/src/db/schema.sql`, idempotent), and a week of sample tee-time slots plus one Admin user are
-seeded automatically if the database is empty.
+Local development uses SQLite via Node's built-in `node:sqlite` module (Node 22 or newer) - no separate
+database server, and no native npm package to install or compile (deliberately avoided after
+`better-sqlite3` hit a native binding issue on Windows). The schema is applied automatically on server
+startup (`server/src/db/schema.sql`, idempotent), and a week of sample tee-time slots plus one Admin user
+are seeded automatically if the database is empty.
 
-For the eventual AWS deployment, `server/src/db/index.ts` and the `?`-placeholder queries in
-`server/src/routes/*.ts` are the two places that would move to Postgres (RDS) - the schema itself was
-kept dialect-neutral (IDs/timestamps generated in application code) to make that swap contained.
+`server/src/db/index.ts` and the `?`-placeholder queries in `server/src/routes/*.ts` are the two places that
+would move to Postgres (RDS) in future - the schema itself was kept dialect-neutral (IDs and timestamps
+generated in application code) to make that swap contained.
 
-**Test credentials (seeded automatically):** `admin@stepaside.local` / `Admin123!` - use this to log in
-as Admin and see every booking. Change or remove this before any real deployment.
+## Accounts and access
 
-**Members** self-register via the Register page - this always creates a `Member` account (never `Admin`,
-which is only ever seeded, not self-assignable). A booking made while logged in as a Member links to
-that account and shows up under "My Bookings".
+- **Admin:** a single Admin account is seeded on first run of an empty database so the Admin-only flows can
+  be tested locally. Its local-development defaults are set in `server/src/db/seed.ts`. It is not
+  self-assignable through the app, and it must be changed on any deployed instance (see `DEPLOYMENT.md`).
+- **Members** self-register via the Register page - this always creates a `Member` account, never `Admin`.
+  A booking made while logged in as a Member links to that account and shows up under "My Bookings".
+- **Guest checkout** was the original design and has been reversed at the UI level: the booking page sits
+  behind a login gate (`client/src/auth/RequireAuth.tsx`).
 
-Guest checkout (booking without an account) was the original design. That's been reversed at the UI
-level: the booking page now sits behind a login gate (`client/src/auth/RequireAuth.tsx`) and an
-anonymous visitor is redirected to `/login` with a message telling them why. Note this is currently a
-client-side gate only - `POST /api/bookings` still uses `optionalAuth`, not `requireAuth`, so a request
-made directly against the API (bypassing the UI) would still succeed unlinked. Tightening that
-(`requireAuth` instead of `optionalAuth` on the bookings route) is a five-minute follow-up if the guest
-checkout removal should also be enforced server-side.
+## Getting started (local development)
 
-## Getting started
-
-1. Copy `server/.env.example` to `server/.env` (defaults are fine for local dev).
+1. Copy `server/.env.example` to `server/.env` and set your own `JWT_SECRET`.
 2. From the repo root: `npm install` (installs all three workspaces).
 3. Run the API: `npm run dev:server` (http://localhost:4000) - creates `server/data/stepaside.db`,
    applies the schema, and seeds sample data on first run.
 4. In a **second terminal**, run the client: `npm run dev:client` (http://localhost:5173, proxies
    `/api` to the server). Both need to be running at the same time.
 
-## Status
+## Deployment
 
-Skeleton scaffold - booking form fields, admin slot-management UI, and the real homepage copy from the
-original site are still to be filled in during the Weeks 5-7 build.
+The app is deployed to a single AWS EC2 instance behind Nginx with HTTPS. See
+[DEPLOYMENT.md](DEPLOYMENT.md) for the full procedure.
+
+## Known limitations
+
+- The login gate on the booking page is enforced in the client. Enforcing it on the API as well
+  (`requireAuth` instead of `optionalAuth` on `POST /api/bookings`) is planned.
+- SQLite on the instance disk is a single point of failure with no automated backups.
+
+## Security notes
+
+Secrets (`.env`, private keys, database files) must never be committed - `.env` and `*.db*` are
+git-ignored. Configuration is described in `server/.env.example`, which contains placeholders only.
