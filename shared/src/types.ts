@@ -16,7 +16,7 @@ export interface AuthTokenPayload {
   role: UserRole;
 }
 
-export type BookingType = "Visitor" | "Society";
+export type BookingType = "Visitor" | "Society" | "Member";
 
 export interface TeeTimeSlot {
   id: string;

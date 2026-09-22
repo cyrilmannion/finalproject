@@ -24,7 +24,7 @@ CREATE TABLE IF NOT EXISTS tee_time_slots (
 CREATE TABLE IF NOT EXISTS bookings (
     id TEXT PRIMARY KEY,
     tee_time_slot_id TEXT NOT NULL REFERENCES tee_time_slots(id),
-    type TEXT NOT NULL CHECK (type IN ('Visitor', 'Society')),
+    type TEXT NOT NULL CHECK (type IN ('Visitor', 'Society', 'Member')),
     name TEXT NOT NULL,
     email TEXT NOT NULL,
     phone TEXT,

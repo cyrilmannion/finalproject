@@ -71,7 +71,7 @@ bookingsRouter.post("/", optionalAuth, (req: AuthedRequest, res, next) => {
   try {
     const { teeTimeSlotId, type, name, email, phone, partySize } = req.body as {
       teeTimeSlotId?: string;
-      type?: "Visitor" | "Society";
+      type?: "Visitor" | "Society" | "Member";
       name?: string;
       email?: string;
       phone?: string;
@@ -82,6 +82,16 @@ bookingsRouter.post("/", optionalAuth, (req: AuthedRequest, res, next) => {
       return res
         .status(400)
         .json({ error: "teeTimeSlotId, type, name, email and partySize are required" });
+    }
+    if (!["Visitor", "Society", "Member"].includes(type)) {
+      return res.status(400).json({ error: "type must be Visitor, Society or Member" });
+    }
+    // A "Member" booking claims to be made by a logged-in club member, so it requires an
+    // authenticated caller - unlike Visitor/Society, which stay open to anyone (optionalAuth
+    // above). This is enforced here rather than only in the client, since the API is reachable
+    // directly (see the optionalAuth vs requireAuth note in README.md).
+    if (type === "Member" && !req.user) {
+      return res.status(401).json({ error: "You must be logged in to make a Member booking" });
     }
 
     const booking = createBooking({

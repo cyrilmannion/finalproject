@@ -44,14 +44,19 @@ export function Booking() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // If a member is logged in, prefill their name/email - still editable in case they're
-  // booking on behalf of someone else (e.g. a society booking).
+  // If a member is logged in, prefill their name/email and default the booking type to
+  // "Member" - all still editable in case they're booking on behalf of someone else (e.g. a
+  // visitor or a society). An Admin isn't assumed to be booking for themselves, so their
+  // default stays "Visitor".
   useEffect(() => {
     if (user?.name) {
       setName((current) => current || user.name);
     }
     if (user?.email) {
       setEmail((current) => current || user.email);
+    }
+    if (user?.role === "Member") {
+      setType((current) => (current === "Visitor" ? "Member" : current));
     }
   }, [user]);
 
@@ -171,6 +176,17 @@ export function Booking() {
             <Form.Group className="mb-3">
               <Form.Label>Booking type</Form.Label>
               <div>
+                {user?.role === "Member" && (
+                  <Form.Check
+                    inline
+                    type="radio"
+                    name="type"
+                    id="type-member"
+                    label="Member"
+                    checked={type === "Member"}
+                    onChange={() => setType("Member")}
+                  />
+                )}
                 <Form.Check
                   inline
                   type="radio"

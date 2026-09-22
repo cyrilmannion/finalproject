@@ -36,3 +36,44 @@ const userColumns = db.prepare("PRAGMA table_info(users)").all() as { name: stri
 if (!userColumns.some((col) => col.name === "name")) {
   db.exec("ALTER TABLE users ADD COLUMN name TEXT NOT NULL DEFAULT ''");
 }
+
+// Migration: 'Member' is now a valid booking type (originally only Visitor/Society), so a
+// logged-in Member can book a tee time for themselves rather than only for a Visitor or a
+// Society. SQLite can't ALTER a CHECK constraint in place, so an existing bookings table that
+// still has the old constraint is rebuilt: a new table is created with the updated constraint,
+// every row is copied across, and it is swapped in for the original.
+const bookingsTableSql = (
+  db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'bookings'").get() as
+    | { sql: string }
+    | undefined
+)?.sql;
+
+if (bookingsTableSql && !bookingsTableSql.includes("'Member'")) {
+  db.exec("BEGIN");
+  try {
+    db.exec(`
+      CREATE TABLE bookings_new (
+          id TEXT PRIMARY KEY,
+          tee_time_slot_id TEXT NOT NULL REFERENCES tee_time_slots(id),
+          type TEXT NOT NULL CHECK (type IN ('Visitor', 'Society', 'Member')),
+          name TEXT NOT NULL,
+          email TEXT NOT NULL,
+          phone TEXT,
+          party_size INTEGER NOT NULL DEFAULT 1,
+          created_at TEXT NOT NULL,
+          user_id TEXT REFERENCES users(id)
+      )
+    `);
+    db.exec(`
+      INSERT INTO bookings_new (id, tee_time_slot_id, type, name, email, phone, party_size, created_at, user_id)
+      SELECT id, tee_time_slot_id, type, name, email, phone, party_size, created_at, user_id FROM bookings
+    `);
+    db.exec("DROP TABLE bookings");
+    db.exec("ALTER TABLE bookings_new RENAME TO bookings");
+    db.exec("COMMIT");
+    console.log("Migrated bookings table: 'Member' is now a valid booking type.");
+  } catch (err) {
+    db.exec("ROLLBACK");
+    throw err;
+  }
+}
