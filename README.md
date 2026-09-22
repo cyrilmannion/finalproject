@@ -25,9 +25,9 @@ generated in application code) to make that swap contained.
 
 ## Accounts and access
 
-- **Admin:** a single Admin account is seeded on first run of an empty database so the Admin-only flows can
-  be tested locally. Its local-development defaults are set in `server/src/db/seed.ts`. It is not
-  self-assignable through the app, and it must be changed on any deployed instance (see `DEPLOYMENT.md`).
+- **Admin:** created on first start of an empty database from `ADMIN_EMAIL` and `ADMIN_PASSWORD` in
+  `server/.env` (password of at least 12 characters). No credentials are stored in the repository, and if the
+  variables are not set no Admin account is created. It is not self-assignable through the app.
 - **Members** self-register via the Register page - this always creates a `Member` account, never `Admin`.
   A booking made while logged in as a Member links to that account and shows up under "My Bookings".
 - **Guest checkout** was the original design and has been reversed at the UI level: the booking page sits
@@ -35,10 +35,11 @@ generated in application code) to make that swap contained.
 
 ## Getting started (local development)
 
-1. Copy `server/.env.example` to `server/.env` and set your own `JWT_SECRET`.
+1. Copy `server/.env.example` to `server/.env` and set your own `JWT_SECRET`, `ADMIN_EMAIL` and
+   `ADMIN_PASSWORD`.
 2. From the repo root: `npm install` (installs all three workspaces).
 3. Run the API: `npm run dev:server` (http://localhost:4000) - creates `server/data/stepaside.db`,
-   applies the schema, and seeds sample data on first run.
+   applies the schema, and seeds sample tee times (and the Admin account, if configured) on first run.
 4. In a **second terminal**, run the client: `npm run dev:client` (http://localhost:5173, proxies
    `/api` to the server). Both need to be running at the same time.
 

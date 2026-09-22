@@ -65,7 +65,12 @@ SQLITE_DB_PATH=./data/stepaside.db
 JWT_SECRET=<generated - see below>
 JWT_EXPIRES_IN=8h
 CLIENT_ORIGIN=https://<HOSTNAME>
+ADMIN_EMAIL=<admin email>
+ADMIN_PASSWORD=<long unique password, 12+ characters>
 ```
+
+`ADMIN_EMAIL` and `ADMIN_PASSWORD` create the Admin account the first time the server starts against an empty
+database, so no default credential ever exists. Choose a long unique password and keep it in a password manager.
 
 Generate a fresh production secret rather than reusing the development one:
 
@@ -83,27 +88,27 @@ pm2 save
 pm2 startup    # run the command it prints so the API restarts after a reboot
 ```
 
-## 7. Replace the seeded Admin password
+## 7. Admin account
 
-On first start the server seeds a default Admin account (see `server/src/db/seed.ts`) whose credentials
-are known. **Replace its password before exposing the site.** The password is read from a prompt so it is
-not stored in shell history:
+On a fresh deployment nothing more is needed: the Admin account is created from `ADMIN_EMAIL` and
+`ADMIN_PASSWORD` when the server first starts (step 6). To change the password of an **existing** Admin
+account, for example on a database seeded before this was configurable, use the prompt below so the
+password is not stored in shell history:
 
 ```
 cd ~/stepaside/server
 read -s -p "New admin password: " NEWPW; echo
-NEWPW="$NEWPW" node -e "
+NEWPW="$NEWPW" ADMIN_LOGIN="<admin-email>" node -e "
 const { DatabaseSync } = require('node:sqlite');
 const bcrypt = require('bcryptjs');
 const db = new DatabaseSync('./data/stepaside.db');
 const hash = bcrypt.hashSync(process.env.NEWPW, 10);
-const r = db.prepare('UPDATE users SET password_hash = ? WHERE email = ?').run(hash, '<admin-email>');
+const r = db.prepare('UPDATE users SET password_hash = ? WHERE email = ?').run(hash, process.env.ADMIN_LOGIN);
 console.log('Rows updated:', r.changes);
 "
 unset NEWPW
 ```
 
-`<admin-email>` is the seeded Admin email. Use a long unique password and keep it in a password manager.
 The app has no change-password screen yet, so this manual reset is a known limitation.
 
 ## 8. Nginx

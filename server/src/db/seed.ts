@@ -47,16 +47,33 @@ if (slotCount === 0) {
   }
 }
 
-// Seeds one default Admin user if none exists yet, so the Admin-only JWT flow (Research
-// folder's Books-API assignment pattern) can be tested immediately without a registration UI.
+// Seeds one Admin user if none exists yet, so the Admin-only JWT flow (Research folder's
+// Books-API assignment pattern) can be used without a registration UI. The credentials come
+// from the environment (ADMIN_EMAIL / ADMIN_PASSWORD in server/.env) - none are hard-coded
+// here, so no default password is ever committed to the repository. If they are not set, the
+// Admin account is simply not created.
 const { adminCount } = db.prepare("SELECT COUNT(*) as adminCount FROM users WHERE role = 'Admin'").get() as {
   adminCount: number;
 };
 
 if (adminCount === 0) {
-  const passwordHash = bcrypt.hashSync("Admin123!", 10);
-  db.prepare(
-    `INSERT INTO users (id, email, password_hash, role, created_at, name) VALUES (?, ?, ?, 'Admin', ?, ?)`
-  ).run(randomUUID(), "admin@stepaside.local", passwordHash, new Date().toISOString(), "Stepaside Admin");
-  console.log("Seeded default Admin user -> admin@stepaside.local / Admin123! (change before deploying)");
+  const adminEmail = process.env.ADMIN_EMAIL?.trim();
+  const adminPassword = process.env.ADMIN_PASSWORD;
+  const MIN_PASSWORD_LENGTH = 12;
+
+  if (!adminEmail || !adminPassword) {
+    console.warn(
+      "No Admin user exists and ADMIN_EMAIL / ADMIN_PASSWORD are not set in server/.env - skipping Admin seed."
+    );
+  } else if (adminPassword.length < MIN_PASSWORD_LENGTH) {
+    console.warn(
+      `ADMIN_PASSWORD must be at least ${MIN_PASSWORD_LENGTH} characters - skipping Admin seed.`
+    );
+  } else {
+    const passwordHash = bcrypt.hashSync(adminPassword, 10);
+    db.prepare(
+      `INSERT INTO users (id, email, password_hash, role, created_at, name) VALUES (?, ?, ?, 'Admin', ?, ?)`
+    ).run(randomUUID(), adminEmail, passwordHash, new Date().toISOString(), "Stepaside Admin");
+    console.log(`Seeded Admin user for ${adminEmail}`);
+  }
 }
